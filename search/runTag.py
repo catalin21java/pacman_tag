@@ -4,7 +4,7 @@
 # Usage: python runTag.py [options]
 
 from tagGame import TagGameRules, TagGameState
-from tagAgents import TagPacmanAgent, TagGhostAgent, KeyboardTagPacmanAgent
+from tagAgents import TagPacmanAgent, TagGhostAgent, KeyboardTagPacmanAgent, SmartTagGhostAgent
 from game import Game
 import layout
 import sys
@@ -54,6 +54,8 @@ def readCommand(argv):
     parser.add_option('--timeout', dest='timeout', type='int',
                       help=default('Maximum time for agent computation'),
                       default=30)
+    parser.add_option('--smartGhost', action='store_true', dest='smartGhost',
+                      help='Use smart A* pathfinding ghost (much better at chasing!)', default=False)
                       
     options, otherjunk = parser.parse_args(argv)
     if len(otherjunk) != 0:
@@ -95,7 +97,13 @@ def runTagGame(options):
         print("Pacman and Ghost will play tag automatically!")
         print("==================\n")
     
-    ghostAgent = TagGhostAgent(1)
+    # Choose ghost agent based on options
+    if options.smartGhost:
+        ghostAgent = SmartTagGhostAgent(1)
+        print("Using SMART Ghost with A* pathfinding!")
+    else:
+        ghostAgent = TagGhostAgent(1)
+        print("Using standard Ghost agent.")
     
     # Create display
     if options.quietGraphics:

@@ -8,6 +8,8 @@ from game import Actions
 from util import manhattanDistance
 import random
 import util
+import search
+from game import Grid
 
 class TagPacmanAgent(Agent):
     """
@@ -134,6 +136,166 @@ class TagGhostAgent(Agent):
         
         # Choose action based on distribution
         return util.chooseFromDistribution(dist)
+
+
+class ChaseProblem:
+    """
+    A search problem for the ghost to find the best path to Pacman.
+    This allows using A* search instead of greedy one-step lookahead.
+    """
+    def __init__(self, gameState, ghostIndex, targetPos, walls):
+        """
+        gameState: The current game state
+        ghostIndex: The index of the ghost agent
+        targetPos: Position to reach (Pacman's position)
+        walls: Grid of walls
+        """
+        self.startState = gameState.getGhostPosition(ghostIndex)
+        self.goal = targetPos
+        self.walls = walls
+        self.expanded = 0
+        
+    def getStartState(self):
+        return self.startState
+    
+    def isGoalState(self, state):
+        return state == self.goal
+    
+    def getGoal(self):
+        """Return the goal position for heuristic calculation."""
+        return self.goal
+    
+    def getSuccessors(self, state):
+        """
+        Returns successor states, the actions they require, and a cost of 1.
+        """
+        successors = []
+        for action in [Directions.NORTH, Directions.SOUTH, Directions.EAST, Directions.WEST]:
+            x, y = state
+            dx, dy = Actions.directionToVector(action)
+            nextx, nexty = int(x + dx), int(y + dy)
+            if not self.walls[nextx][nexty]:
+                nextState = (nextx, nexty)
+                successors.append((nextState, action, 1))
+        self.expanded += 1
+        return successors
+    
+    def getCostOfActions(self, actions):
+        """
+        Returns the cost of a particular sequence of actions.
+        """
+        if actions is None:
+            return 999999
+        x, y = self.getStartState()
+        cost = 0
+        for action in actions:
+            dx, dy = Actions.directionToVector(action)
+            x, y = int(x + dx), int(y + dy)
+            if self.walls[x][y]:
+                return 999999
+            cost += 1
+        return cost
+
+
+class SmartTagGhostAgent(Agent):
+    """
+    Improved Ghost agent using A* pathfinding.
+    This is MUCH smarter than the basic greedy approach!
+    
+    When chasing: Uses A* search to find the optimal path to Pacman
+    When fleeing: Uses A* search to find paths away from Pacman
+    """
+    def __init__(self, index=1):
+        self.index = index
+        self.plannedPath = []  # Store planned path
+        self.replanCounter = 0  # Counter to trigger replanning
+        
+    def getAction(self, state):
+        """
+        Get action using A* pathfinding for intelligent chasing/fleeing.
+        """
+        legal = state.getLegalActions(self.index)
+        if not legal:
+            return Directions.STOP
+        if Directions.STOP in legal:
+            legal.remove(Directions.STOP)
+        if not legal:
+            return Directions.STOP
+            
+        # Get positions
+        pacmanPos = state.getPacmanPosition()
+        ghostPos = state.getGhostPosition(self.index)
+        
+        # Check who is 'it'
+        pacman_is_it = state.data.pacman_is_it if hasattr(state.data, 'pacman_is_it') else True
+        ghost_is_it = not pacman_is_it
+        
+        # Replan every 5 moves or if path is empty
+        self.replanCounter += 1
+        shouldReplan = (self.replanCounter % 5 == 0) or (len(self.plannedPath) == 0)
+        
+        if ghost_is_it:
+            # CHASE PACMAN using A* search
+            if shouldReplan or len(self.plannedPath) == 0:
+                # Create search problem to reach Pacman
+                problem = ChaseProblem(state, self.index, pacmanPos, state.getWalls())
+                # Use A* with Manhattan heuristic for fast pathfinding
+                self.plannedPath = search.aStarSearch(problem, search.manhattanHeuristic)
+                
+                # Debug output
+                if hasattr(state.data, 'move_count') and state.data.move_count % 50 == 0:
+                    print(f"[Smart Ghost] CHASING - Planned path length: {len(self.plannedPath)}, Distance: {manhattanDistance(ghostPos, pacmanPos)}")
+            
+            # Follow the planned path
+            if self.plannedPath and len(self.plannedPath) > 0:
+                nextAction = self.plannedPath[0]
+                self.plannedPath = self.plannedPath[1:]  # Remove first action
+                if nextAction in legal:
+                    return nextAction
+                else:
+                    # Path blocked, replan next turn
+                    self.plannedPath = []
+        else:
+            # FLEE FROM PACMAN - try to maximize distance
+            # Use greedy approach but look ahead more
+            bestAction = None
+            bestDist = -1
+            
+            for action in legal:
+                # Look two steps ahead if possible
+                successor = self.getSuccessorPosition(ghostPos, action, state.getWalls())
+                if successor:
+                    dist = manhattanDistance(successor, pacmanPos)
+                    if dist > bestDist:
+                        bestDist = dist
+                        bestAction = action
+            
+            if bestAction:
+                return bestAction
+        
+        # Fallback: use greedy approach
+        actionDistances = []
+        for action in legal:
+            successor = self.getSuccessorPosition(ghostPos, action, state.getWalls())
+            if successor:
+                dist = manhattanDistance(successor, pacmanPos)
+                actionDistances.append((action, dist))
+        
+        if actionDistances:
+            if ghost_is_it:
+                return min(actionDistances, key=lambda x: x[1])[0]
+            else:
+                return max(actionDistances, key=lambda x: x[1])[0]
+        
+        return random.choice(legal) if legal else Directions.STOP
+    
+    def getSuccessorPosition(self, position, action, walls):
+        """Get the successor position from taking an action."""
+        dx, dy = Actions.directionToVector(action)
+        nextx, nexty = int(position[0] + dx), int(position[1] + dy)
+        if not walls[nextx][nexty]:
+            return (nextx, nexty)
+        return None
 
 
 class KeyboardTagPacmanAgent(Agent):

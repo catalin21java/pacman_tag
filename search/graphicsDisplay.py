@@ -104,6 +104,10 @@ class InfoPane:
 
     def drawPane(self):
         self.scoreText = text( self.toScreen(0, 0  ), self.textColor, "SCORE:    0", "Times", self.fontSize, "bold")
+        # Add tag game scores
+        self.pacmanScoreText = None
+        self.phantomScoreText = None
+        self.winMessageText = None
 
     def initializeGhostDistances(self, distances):
         self.ghostDistanceText = []
@@ -120,6 +124,37 @@ class InfoPane:
 
     def updateScore(self, score):
         changeText(self.scoreText, "SCORE: % 4d" % score)
+    
+    def updateTagScores(self, pacmanScore, phantomScore):
+        """Update the tag game scores for Pacman and Phantom."""
+        # Yellow color for Pacman
+        pacmanColor = formatColor(1.0, 1.0, 0.24)
+        # Red color for Phantom
+        phantomColor = formatColor(0.9, 0, 0)
+        
+        pacmanText = "PACMAN: % 4d" % int(pacmanScore)
+        phantomText = "PHANTOM: % 4d" % int(phantomScore)
+        
+        if self.pacmanScoreText is None:
+            # Create text elements for the first time
+            self.pacmanScoreText = text(self.toScreen(0, 0), pacmanColor, pacmanText, "Times", self.fontSize, "bold")
+            # Position phantom score to the right
+            offset = 250 if self.width > 400 else 180
+            self.phantomScoreText = text(self.toScreen(offset, 0), phantomColor, phantomText, "Times", self.fontSize, "bold")
+        else:
+            # Update existing text
+            changeText(self.pacmanScoreText, pacmanText)
+            changeText(self.phantomScoreText, phantomText)
+    
+    def showWinMessage(self, winner):
+        """Display a win message on the screen."""
+        if self.winMessageText is None:
+            winColor = formatColor(1.0, 0.84, 0)  # Gold color
+            message = winner + " WINS!"
+            # Center the message
+            centerX = self.width // 2 * self.gridSize
+            centerY = (self.height // 2) * self.gridSize
+            self.winMessageText = text((centerX, centerY), winColor, message, "Times", 48, "bold")
 
     def setTeam(self, isBlue):
         text = "RED TEAM"
@@ -252,6 +287,10 @@ class PacmanGraphics:
         self.infoPane.updateScore(newState.score)
         if 'ghostDistances' in dir(newState):
             self.infoPane.updateGhostDistances(newState.ghostDistances)
+        
+        # Update tag game scores if present
+        if hasattr(newState, 'data') and hasattr(newState.data, 'pacman_score'):
+            self.infoPane.updateTagScores(newState.data.pacman_score, newState.data.phantom_score)
 
     def make_window(self, width, height):
         grid_width = (width-1) * self.gridSize

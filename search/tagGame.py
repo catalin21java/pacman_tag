@@ -29,12 +29,16 @@ class TagGameStateData(GameStateData):
             self.tag_count = 0
             self.move_count = 0
             self.tag_cooldown = 0
+            self.pacman_score = 0
+            self.phantom_score = 0
         else:
             # Copy from previous state
             self.pacman_is_it = getattr(prevState, 'pacman_is_it', True)
             self.tag_count = getattr(prevState, 'tag_count', 0)
             self.move_count = getattr(prevState, 'move_count', 0)
             self.tag_cooldown = getattr(prevState, 'tag_cooldown', 0)
+            self.pacman_score = getattr(prevState, 'pacman_score', 0)
+            self.phantom_score = getattr(prevState, 'phantom_score', 0)
         
     def deepCopy(self):
         # Create a NEW TagGameStateData (not GameStateData!)
@@ -58,6 +62,8 @@ class TagGameStateData(GameStateData):
         state.tag_count = self.tag_count
         state.move_count = self.move_count
         state.tag_cooldown = self.tag_cooldown
+        state.pacman_score = self.pacman_score
+        state.phantom_score = self.phantom_score
         return state
 
 class TagGameRules:
@@ -108,6 +114,10 @@ class TagGameRules:
             state.data.move_count = 0
         if not hasattr(state.data, 'tag_cooldown'):
             state.data.tag_cooldown = 0
+        if not hasattr(state.data, 'pacman_score'):
+            state.data.pacman_score = 0
+        if not hasattr(state.data, 'phantom_score'):
+            state.data.phantom_score = 0
             
         # Decrement cooldown timer
         if state.data.tag_cooldown > 0:
@@ -136,14 +146,31 @@ class TagGameRules:
             else:
                 state.data.agentStates[1].scaredTimer = 0
         
+        # Award points to the player being chased (the one who is NOT "it")
+        # Award ~3.33 points per move so that 300 moves = 1000 points (~30 seconds)
+        if state.data.pacman_is_it:
+            # Pacman is IT (chasing), so Phantom gets points for being chased
+            state.data.phantom_score += 3.33
+        else:
+            # Phantom is IT (chasing), so Pacman gets points for being chased
+            state.data.pacman_score += 3.33
+        
         # Show periodic status updates (every 20 moves)
         if not self.quiet and state.data.move_count - self.last_status_move >= 20:
             self.last_status_move = state.data.move_count
             who_is_it = "PACMAN (Chasing)" if state.data.pacman_is_it else "GHOST (Chasing)"
             ghost_scared = state.data.agentStates[1].scaredTimer > 0
-            print(f"[Move {state.data.move_count}] IT: {who_is_it} | Tags: {state.data.tag_count} | Distance: {distance:.1f} | Ghost scared: {ghost_scared}")
+            print(f"[Move {state.data.move_count}] IT: {who_is_it} | Tags: {state.data.tag_count} | Distance: {distance:.1f} | Pacman: {int(state.data.pacman_score)} | Phantom: {int(state.data.phantom_score)}")
             
-        # Check win/lose conditions ONLY for tag game
+        # Check win condition - first to 1000 points wins
+        if state.data.pacman_score >= 1000:
+            self.winGame(state, game, "PACMAN")
+            return
+        if state.data.phantom_score >= 1000:
+            self.winGame(state, game, "PHANTOM")
+            return
+            
+        # Check other end conditions for tag game
         if hasattr(state.data, 'tag_count') and state.data.tag_count >= self.maxTags:
             self.endGame(state, game)
         
@@ -197,15 +224,50 @@ class TagGameRules:
         # Add points for successful tag
         state.data.scoreChange += 100
             
+    def winGame(self, state, game, winner):
+        """End the game with a winner."""
+        if not self.quiet:
+            tag_count = getattr(state.data, 'tag_count', 0)
+            move_count = getattr(state.data, 'move_count', 0)
+            pacman_score = int(getattr(state.data, 'pacman_score', 0))
+            phantom_score = int(getattr(state.data, 'phantom_score', 0))
+            print("\n" + "="*60)
+            print(f"{'🏆 GAME OVER - ' + winner + ' WINS! 🏆':^60}")
+            print("="*60)
+            print(f"  Final Scores:")
+            print(f"    Pacman:  {pacman_score} points")
+            print(f"    Phantom: {phantom_score} points")
+            print(f"  ")
+            print(f"  Total Tags: {tag_count}")
+            print(f"  Total Moves: {move_count}")
+            print("="*60 + "\n")
+        
+        # Display win message graphically
+        if hasattr(game, 'display') and hasattr(game.display, 'infoPane'):
+            if hasattr(game.display.infoPane, 'showWinMessage'):
+                game.display.infoPane.showWinMessage(winner)
+        
+        # Set win/loss appropriately
+        if winner == "PACMAN":
+            state.data._win = True
+        else:
+            state.data._lose = True
+        
+        game.gameOver = True
+        game.winner = winner  # Store winner for display
+    
     def endGame(self, state, game):
         """End the game."""
         if not self.quiet:
             tag_count = getattr(state.data, 'tag_count', 0)
             move_count = getattr(state.data, 'move_count', 0)
+            pacman_score = int(getattr(state.data, 'pacman_score', 0))
+            phantom_score = int(getattr(state.data, 'phantom_score', 0))
             print(f"\n=== Game Over! ===")
             print(f"Total Tags: {tag_count}")
             print(f"Total Moves: {move_count}")
-            print(f"Final Score: {state.data.score}")
+            print(f"Pacman Score: {pacman_score}")
+            print(f"Phantom Score: {phantom_score}")
         game.gameOver = True
         
     def win(self, state, game):
