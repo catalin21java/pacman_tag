@@ -1,0 +1,361 @@
+# tagGame.py
+# ----------
+# Tag game implementation for Pacman
+# In this game, Pacman and a Ghost play tag - touching switches who is "it"
+
+from game import GameStateData, Game, Directions, Actions
+from pacman import GameState, PacmanRules, GhostRules, COLLISION_TOLERANCE, TIME_PENALTY
+from util import manhattanDistance, nearestPoint
+import util
+import layout
+import sys
+import types
+import time
+import random
+import os
+
+class TagGameStateData(GameStateData):
+    """
+    Extended GameStateData that preserves tag-specific attributes.
+    """
+    def __init__(self, prevState=None):
+        # Call parent init first
+        GameStateData.__init__(self, prevState)
+        
+        # Initialize tag-specific attributes  
+        if prevState is None:
+            # Brand new state
+            self.pacman_is_it = True
+            self.tag_count = 0
+            self.move_count = 0
+            self.tag_cooldown = 0
+        else:
+            # Copy from previous state
+            self.pacman_is_it = getattr(prevState, 'pacman_is_it', True)
+            self.tag_count = getattr(prevState, 'tag_count', 0)
+            self.move_count = getattr(prevState, 'move_count', 0)
+            self.tag_cooldown = getattr(prevState, 'tag_cooldown', 0)
+        
+    def deepCopy(self):
+        # Create a NEW TagGameStateData (not GameStateData!)
+        state = TagGameStateData.__new__(TagGameStateData)
+        # Manually copy all attributes from parent class
+        state.food = self.food.deepCopy()
+        state.layout = self.layout.deepCopy()
+        state._agentMoved = self._agentMoved
+        state._foodEaten = self._foodEaten
+        state._foodAdded = self._foodAdded
+        state._capsuleEaten = self._capsuleEaten
+        state.agentStates = self.copyAgentStates(self.agentStates)
+        state.score = self.score
+        state._eaten = self._eaten[:]
+        state.scoreChange = self.scoreChange
+        state._lose = self._lose
+        state._win = self._win
+        state.capsules = self.capsules[:]
+        # NOW copy our tag attributes
+        state.pacman_is_it = self.pacman_is_it
+        state.tag_count = self.tag_count
+        state.move_count = self.move_count
+        state.tag_cooldown = self.tag_cooldown
+        return state
+
+class TagGameRules:
+    """
+    Game rules for Tag. The game continues until a time limit or tag count limit is reached.
+    """
+    def __init__(self, timeout=30, maxTags=10, maxMoves=1000):
+        self.timeout = timeout
+        self.maxTags = maxTags  # Game ends after this many tags
+        self.maxMoves = maxMoves  # Game ends after this many moves
+        self.last_status_move = 0  # Track when we last showed status
+        
+    def newGame(self, layout, pacmanAgent, ghostAgents, display, quiet=False, catchExceptions=False):
+        # Ensure we have exactly one ghost
+        if len(ghostAgents) == 0:
+            raise Exception("Tag game requires at least one ghost agent")
+        agents = [pacmanAgent] + [ghostAgents[0]]  # Only one ghost for tag
+        initState = TagGameState()
+        # Get the number of ghosts actually in the layout
+        num_layout_ghosts = layout.getNumGhosts()
+        if num_layout_ghosts == 0:
+            # If layout has no ghosts, we need to add one programmatically
+            # Use at least 1 ghost position
+            initState.initialize(layout, max(1, num_layout_ghosts))
+        else:
+            # Use the ghosts from the layout, but limit to 1
+            initState.initialize(layout, 1)
+        game = Game(agents, display, self, catchExceptions=catchExceptions)
+        game.state = initState
+        self.initialState = initState.deepCopy()
+        self.quiet = quiet
+        return game
+        
+    def process(self, state, game):
+        """
+        Checks game state and handles tag events.
+        """
+        # Override any win/lose conditions from standard Pacman
+        state.data._win = False
+        state.data._lose = False
+        
+        # Initialize if needed
+        if not hasattr(state.data, 'pacman_is_it'):
+            state.data.pacman_is_it = True
+        if not hasattr(state.data, 'tag_count'):
+            state.data.tag_count = 0
+        if not hasattr(state.data, 'move_count'):
+            state.data.move_count = 0
+        if not hasattr(state.data, 'tag_cooldown'):
+            state.data.tag_cooldown = 0
+            
+        # Decrement cooldown timer
+        if state.data.tag_cooldown > 0:
+            state.data.tag_cooldown -= 1
+        
+        # UPDATE GHOST STATE BASED ON WHO IS IT
+        # This must happen EVERY frame to keep the color correct
+        ghostState = state.data.agentStates[1]  # Ghost is always index 1
+        if state.data.pacman_is_it:
+            # Pacman is IT - Ghost should be scared (blue)
+            ghostState.scaredTimer = 999
+        else:
+            # Ghost is IT - Ghost should be normal (red)
+            ghostState.scaredTimer = 0
+            
+        # Check for tag (collision)
+        pacmanPos = state.getPacmanPosition()
+        ghostPos = state.getGhostPosition(1)
+        distance = manhattanDistance(pacmanPos, ghostPos)
+        
+        if self.checkTag(pacmanPos, ghostPos):
+            self.handleTag(state, game)
+            # Update ghost appearance immediately after tag
+            if state.data.pacman_is_it:
+                state.data.agentStates[1].scaredTimer = 999
+            else:
+                state.data.agentStates[1].scaredTimer = 0
+        
+        # Show periodic status updates (every 20 moves)
+        if not self.quiet and state.data.move_count - self.last_status_move >= 20:
+            self.last_status_move = state.data.move_count
+            who_is_it = "PACMAN (Chasing)" if state.data.pacman_is_it else "GHOST (Chasing)"
+            ghost_scared = state.data.agentStates[1].scaredTimer > 0
+            print(f"[Move {state.data.move_count}] IT: {who_is_it} | Tags: {state.data.tag_count} | Distance: {distance:.1f} | Ghost scared: {ghost_scared}")
+            
+        # Check win/lose conditions ONLY for tag game
+        if hasattr(state.data, 'tag_count') and state.data.tag_count >= self.maxTags:
+            self.endGame(state, game)
+        
+        if hasattr(state.data, 'move_count') and state.data.move_count >= self.maxMoves:
+            self.endGame(state, game)
+            
+    def checkTag(self, pacmanPos, ghostPos):
+        """Check if Pacman and Ghost are close enough to tag."""
+        # Increased tolerance from 0.7 to 1.5 to make tags easier
+        return manhattanDistance(pacmanPos, ghostPos) <= 1.5
+        
+    def handleTag(self, state, game):
+        """Handle a tag event - switch who is 'it'."""
+        # Initialize tag tracking attributes
+        if not hasattr(state.data, 'pacman_is_it'):
+            state.data.pacman_is_it = True
+        if not hasattr(state.data, 'tag_cooldown'):
+            state.data.tag_cooldown = 0
+        if not hasattr(state.data, 'tag_count'):
+            state.data.tag_count = 0
+            
+        # Cooldown mechanism: prevent multiple tags in quick succession
+        if state.data.tag_cooldown > 0:
+            # Still in cooldown, ignore this tag
+            if not self.quiet and state.data.tag_cooldown % 3 == 0:
+                print(f"[Tag ignored - cooldown: {state.data.tag_cooldown}]")
+            return
+            
+        # We have a new tag!
+        old_state = state.data.pacman_is_it
+        state.data.pacman_is_it = not state.data.pacman_is_it
+        state.data.tag_count += 1
+        state.data.tag_cooldown = 20  # Increased cooldown to 20 moves
+        
+        # Display tag message with visual flair
+        if not self.quiet:
+            who_is_it = "Pacman" if state.data.pacman_is_it else "Ghost"
+            chasing_who = "Ghost" if state.data.pacman_is_it else "Pacman"
+            ghost_color = "SCARED (Blue/White)" if state.data.pacman_is_it else "AGGRESSIVE (Red)"
+            print("\n" + "="*60)
+            print(f"    *** TAG! TAG! TAG! ***")
+            print(f"    BEFORE: {'Pacman' if old_state else 'Ghost'} was IT")
+            print(f"    NOW: {who_is_it.upper()} IS IT!")
+            print(f"    {who_is_it} will now CHASE {chasing_who}!")
+            print(f"    {chasing_who} will now RUN AWAY!")
+            print(f"    Ghost color: {ghost_color}")
+            print(f"    Tag Count: {state.data.tag_count}")
+            print(f"    Cooldown set to: 20 moves")
+            print("="*60 + "\n")
+            
+        # Add points for successful tag
+        state.data.scoreChange += 100
+            
+    def endGame(self, state, game):
+        """End the game."""
+        if not self.quiet:
+            tag_count = getattr(state.data, 'tag_count', 0)
+            move_count = getattr(state.data, 'move_count', 0)
+            print(f"\n=== Game Over! ===")
+            print(f"Total Tags: {tag_count}")
+            print(f"Total Moves: {move_count}")
+            print(f"Final Score: {state.data.score}")
+        game.gameOver = True
+        
+    def win(self, state, game):
+        """Tag game doesn't have traditional win condition."""
+        self.endGame(state, game)
+        
+    def lose(self, state, game):
+        """Tag game doesn't have traditional lose condition."""
+        self.endGame(state, game)
+        
+    def getProgress(self, game):
+        """Return game progress as a fraction."""
+        if hasattr(game.state.data, 'move_count'):
+            return min(1.0, float(game.state.data.move_count) / self.maxMoves)
+        return 0.0
+        
+    def agentCrash(self, game, agentIndex):
+        if agentIndex == 0:
+            print("Pacman crashed")
+        else:
+            print("Ghost crashed")
+            
+    def getMaxTotalTime(self, agentIndex):
+        return self.timeout
+        
+    def getMaxStartupTime(self, agentIndex):
+        return self.timeout
+        
+    def getMoveWarningTime(self, agentIndex):
+        return self.timeout
+        
+    def getMoveTimeout(self, agentIndex):
+        return self.timeout
+        
+    def getMaxTimeWarnings(self, agentIndex):
+        return 0
+
+
+class TagGameState(GameState):
+    """
+    Extended GameState for tag game with additional tracking.
+    """
+    def __init__(self, prevState=None):
+        # Don't call super().__init__ to avoid creating regular GameStateData
+        if prevState != None:
+            self.data = TagGameStateData(prevState.data)
+        else:
+            self.data = TagGameStateData()
+                
+    def deepCopy(self):
+        state = TagGameState(self)
+        state.data = self.data.deepCopy()
+        return state
+    
+    def generateSuccessor(self, agentIndex, action):
+        """
+        Returns the successor state after the specified agent takes the action.
+        CRITICAL: This must return a TagGameState, not a GameState!
+        """
+        # Check that successors exist
+        if self.isWin() or self.isLose():
+            raise Exception('Can\'t generate a successor of a terminal state.')
+
+        # Copy current state
+        state = TagGameState(self)
+
+        # Let agent's logic deal with its action's effects on the board
+        if agentIndex == 0:  # Pacman is moving
+            TagPacmanRules.applyAction(state, action)
+        else:  # A ghost is moving
+            TagGhostRules.applyAction(state, action, agentIndex)
+
+        # Time passes
+        if agentIndex == 0:
+            state.data.scoreChange += -TIME_PENALTY  # Penalty for passing time
+        else:
+            TagGhostRules.decrementTimer(state.data.agentStates[agentIndex])
+
+        # Increment move counter
+        if not hasattr(state.data, 'move_count'):
+            state.data.move_count = 0
+        state.data.move_count += 1
+
+        # Book keeping
+        state.data._agentMoved = agentIndex
+        state.data.score += state.data.scoreChange
+        return state
+
+
+class TagPacmanRules(PacmanRules):
+    """
+    Modified Pacman rules for tag - no food, no capsules, just movement.
+    """
+    @staticmethod
+    def applyAction(state, action):
+        """
+        Apply action without food/capsule logic.
+        """
+        legal = PacmanRules.getLegalActions(state)
+        if action not in legal:
+            raise Exception("Illegal action " + str(action))
+            
+        pacmanState = state.data.agentStates[0]
+        vector = Actions.directionToVector(action, PacmanRules.PACMAN_SPEED)
+        pacmanState.configuration = pacmanState.configuration.generateSuccessor(vector)
+
+
+class TagGhostRules(GhostRules):
+    """
+    Modified Ghost rules for tag - no killing, just tagging.
+    """
+    @staticmethod
+    def checkDeath(state, agentIndex):
+        """
+        Override - no death in tag game, just position tracking.
+        """
+        pass  # No death mechanics in tag
+        
+    @staticmethod
+    def collide(state, ghostState, agentIndex):
+        """
+        Override - no collision damage in tag game.
+        """
+        pass  # Tags are handled by TagGameRules
+    
+    @staticmethod
+    def applyAction(state, action, ghostIndex):
+        """
+        Apply ghost action. We override this to use NORMAL speed regardless of scaredTimer.
+        scaredTimer is used ONLY for visual indication, not for speed changes.
+        """
+        legal = GhostRules.getLegalActions(state, ghostIndex)
+        if action not in legal:
+            raise Exception("Illegal ghost action " + str(action))
+
+        ghostState = state.data.agentStates[ghostIndex]
+        
+        # ALWAYS use normal speed (ignore scaredTimer for speed calculation)
+        speed = GhostRules.GHOST_SPEED  # Always 1.0
+        
+        from game import Actions
+        vector = Actions.directionToVector(action, speed)
+        ghostState.configuration = ghostState.configuration.generateSuccessor(vector)
+    
+    @staticmethod
+    def decrementTimer(ghostState):
+        """
+        Override - DON'T decrement scaredTimer in tag game.
+        We use scaredTimer for visual indication only, not for game mechanics.
+        """
+        # Do nothing - scaredTimer is managed by TagGameRules.process()
+        pass
+
