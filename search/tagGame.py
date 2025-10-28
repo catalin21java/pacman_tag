@@ -1,8 +1,3 @@
-# tagGame.py
-# ----------
-# Tag game implementation for Pacman
-# In this game, Pacman and a Ghost play tag - touching switches who is "it"
-
 from game import GameStateData, Game, Directions, Actions
 from pacman import GameState, PacmanRules, GhostRules, COLLISION_TOLERANCE, TIME_PENALTY
 from util import manhattanDistance, nearestPoint
@@ -15,9 +10,6 @@ import random
 import os
 
 class TagGameStateData(GameStateData):
-    """
-    Extended GameStateData that preserves tag-specific attributes.
-    """
     def __init__(self, prevState=None):
         # Call parent init first
         GameStateData.__init__(self, prevState)
@@ -67,9 +59,6 @@ class TagGameStateData(GameStateData):
         return state
 
 class TagGameRules:
-    """
-    Game rules for Tag. The game continues until a time limit or tag count limit is reached.
-    """
     def __init__(self, timeout=30, maxTags=10, maxMoves=1000):
         self.timeout = timeout
         self.maxTags = maxTags  # Game ends after this many tags
@@ -98,9 +87,6 @@ class TagGameRules:
         return game
         
     def process(self, state, game):
-        """
-        Checks game state and handles tag events.
-        """
         # Override any win/lose conditions from standard Pacman
         state.data._win = False
         state.data._lose = False
@@ -124,7 +110,6 @@ class TagGameRules:
             state.data.tag_cooldown -= 1
         
         # UPDATE GHOST STATE BASED ON WHO IS IT
-        # This must happen EVERY frame to keep the color correct
         ghostState = state.data.agentStates[1]  # Ghost is always index 1
         if state.data.pacman_is_it:
             # Pacman is IT - Ghost should be scared (blue)
@@ -146,8 +131,6 @@ class TagGameRules:
             else:
                 state.data.agentStates[1].scaredTimer = 0
         
-        # Award points to the player being chased (the one who is NOT "it")
-        # Award ~3.33 points per move so that 300 moves = 1000 points (~30 seconds)
         if state.data.pacman_is_it:
             # Pacman is IT (chasing), so Phantom gets points for being chased
             state.data.phantom_score += 3.33
@@ -155,7 +138,6 @@ class TagGameRules:
             # Phantom is IT (chasing), so Pacman gets points for being chased
             state.data.pacman_score += 3.33
         
-        # Show periodic status updates (every 20 moves)
         if not self.quiet and state.data.move_count - self.last_status_move >= 20:
             self.last_status_move = state.data.move_count
             who_is_it = "PACMAN (Chasing)" if state.data.pacman_is_it else "GHOST (Chasing)"
@@ -178,12 +160,10 @@ class TagGameRules:
             self.endGame(state, game)
             
     def checkTag(self, pacmanPos, ghostPos):
-        """Check if Pacman and Ghost are close enough to tag."""
         # Increased tolerance from 0.7 to 1.5 to make tags easier
         return manhattanDistance(pacmanPos, ghostPos) <= 1.5
         
     def handleTag(self, state, game):
-        """Handle a tag event - switch who is 'it'."""
         # Initialize tag tracking attributes
         if not hasattr(state.data, 'pacman_is_it'):
             state.data.pacman_is_it = True
@@ -203,7 +183,7 @@ class TagGameRules:
         old_state = state.data.pacman_is_it
         state.data.pacman_is_it = not state.data.pacman_is_it
         state.data.tag_count += 1
-        state.data.tag_cooldown = 20  # Increased cooldown to 20 moves
+        state.data.tag_cooldown = 20  
         
         # Display tag message with visual flair
         if not self.quiet:
@@ -225,7 +205,6 @@ class TagGameRules:
         state.data.scoreChange += 100
             
     def winGame(self, state, game, winner):
-        """End the game with a winner."""
         if not self.quiet:
             tag_count = getattr(state.data, 'tag_count', 0)
             move_count = getattr(state.data, 'move_count', 0)
@@ -257,7 +236,6 @@ class TagGameRules:
         game.winner = winner  # Store winner for display
     
     def endGame(self, state, game):
-        """End the game."""
         if not self.quiet:
             tag_count = getattr(state.data, 'tag_count', 0)
             move_count = getattr(state.data, 'move_count', 0)
@@ -307,9 +285,6 @@ class TagGameRules:
 
 
 class TagGameState(GameState):
-    """
-    Extended GameState for tag game with additional tracking.
-    """
     def __init__(self, prevState=None):
         # Don't call super().__init__ to avoid creating regular GameStateData
         if prevState != None:
@@ -323,10 +298,6 @@ class TagGameState(GameState):
         return state
     
     def generateSuccessor(self, agentIndex, action):
-        """
-        Returns the successor state after the specified agent takes the action.
-        CRITICAL: This must return a TagGameState, not a GameState!
-        """
         # Check that successors exist
         if self.isWin() or self.isLose():
             raise Exception('Can\'t generate a successor of a terminal state.')
@@ -358,9 +329,6 @@ class TagGameState(GameState):
 
 
 class TagPacmanRules(PacmanRules):
-    """
-    Modified Pacman rules for tag - no food, no capsules, just movement.
-    """
     @staticmethod
     def applyAction(state, action):
         """
@@ -376,9 +344,6 @@ class TagPacmanRules(PacmanRules):
 
 
 class TagGhostRules(GhostRules):
-    """
-    Modified Ghost rules for tag - no killing, just tagging.
-    """
     @staticmethod
     def checkDeath(state, agentIndex):
         """
@@ -395,18 +360,13 @@ class TagGhostRules(GhostRules):
     
     @staticmethod
     def applyAction(state, action, ghostIndex):
-        """
-        Apply ghost action. We override this to use NORMAL speed regardless of scaredTimer.
-        scaredTimer is used ONLY for visual indication, not for speed changes.
-        """
         legal = GhostRules.getLegalActions(state, ghostIndex)
         if action not in legal:
             raise Exception("Illegal ghost action " + str(action))
 
         ghostState = state.data.agentStates[ghostIndex]
         
-        # ALWAYS use normal speed (ignore scaredTimer for speed calculation)
-        speed = GhostRules.GHOST_SPEED  # Always 1.0
+        speed = GhostRules.GHOST_SPEED  
         
         from game import Actions
         vector = Actions.directionToVector(action, speed)
@@ -414,10 +374,6 @@ class TagGhostRules(GhostRules):
     
     @staticmethod
     def decrementTimer(ghostState):
-        """
-        Override - DON'T decrement scaredTimer in tag game.
-        We use scaredTimer for visual indication only, not for game mechanics.
-        """
         # Do nothing - scaredTimer is managed by TagGameRules.process()
         pass
 

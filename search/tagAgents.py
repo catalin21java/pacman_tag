@@ -1,7 +1,3 @@
-# tagAgents.py
-# ------------
-# Custom agents for the Tag game where Pacman and a Ghost play tag
-
 from game import Agent
 from game import Directions
 from game import Actions
@@ -12,18 +8,10 @@ import search
 from game import Grid
 
 class TagPacmanAgent(Agent):
-    """
-    Pacman agent for tag game.
-    When Pacman is 'it', he chases the ghost.
-    When the ghost is 'it', Pacman runs away.
-    """
     def __init__(self, index=0):
         self.index = index
         
     def getAction(self, state):
-        """
-        Get action based on whether Pacman is 'it' or not.
-        """
         # Get game state information
         legal = state.getLegalActions(self.index)
         if Directions.STOP in legal:
@@ -68,21 +56,12 @@ class TagPacmanAgent(Agent):
 
 
 class TagGhostAgent(Agent):
-    """
-    Ghost agent for tag game.
-    When the ghost is 'it', it chases Pacman using DirectionalGhost algorithm.
-    When Pacman is 'it', the ghost runs away.
-    """
     def __init__(self, index=1):
         self.index = index
         self.prob_attack = 0.8  # Probability of chasing when IT
         self.prob_flee = 0.8    # Probability of fleeing when not IT
         
     def getAction(self, state):
-        """
-        Get action based on whether the ghost is 'it' or not.
-        Uses DirectionalGhost algorithm for realistic chasing.
-        """
         # Get legal actions
         legal = state.getLegalActions(self.index)
         if not legal:
@@ -92,11 +71,11 @@ class TagGhostAgent(Agent):
         pacmanPos = state.getPacmanPosition()
         ghostPos = state.getGhostPosition(self.index)
         
-        # Check who is 'it' - READ DIRECTLY from state
+        # Check who is 'it' 
         pacman_is_it = state.data.pacman_is_it if hasattr(state.data, 'pacman_is_it') else True
         ghost_is_it = not pacman_is_it
         
-        # Ghost color is managed by TagGameRules.process(), not here
+        # Ghost color is managed by TagGameRules.process()
         ghostState = state.getGhostState(self.index)
         
         # Debug: Print current state occasionally
@@ -139,17 +118,13 @@ class TagGhostAgent(Agent):
 
 
 class ChaseProblem:
-    """
-    A search problem for the ghost to find the best path to Pacman.
-    This allows using A* search instead of greedy one-step lookahead.
-    """
     def __init__(self, gameState, ghostIndex, targetPos, walls):
-        """
-        gameState: The current game state
-        ghostIndex: The index of the ghost agent
-        targetPos: Position to reach (Pacman's position)
-        walls: Grid of walls
-        """
+     
+        #gameState: The current game state
+        #ghostIndex: The index of the ghost agent
+        #targetPos: Position to reach (Pacman's position)
+        #walls: Grid of walls
+       
         self.startState = gameState.getGhostPosition(ghostIndex)
         self.goal = targetPos
         self.walls = walls
@@ -162,13 +137,9 @@ class ChaseProblem:
         return state == self.goal
     
     def getGoal(self):
-        """Return the goal position for heuristic calculation."""
         return self.goal
     
     def getSuccessors(self, state):
-        """
-        Returns successor states, the actions they require, and a cost of 1.
-        """
         successors = []
         for action in [Directions.NORTH, Directions.SOUTH, Directions.EAST, Directions.WEST]:
             x, y = state
@@ -181,9 +152,6 @@ class ChaseProblem:
         return successors
     
     def getCostOfActions(self, actions):
-        """
-        Returns the cost of a particular sequence of actions.
-        """
         if actions is None:
             return 999999
         x, y = self.getStartState()
@@ -198,22 +166,12 @@ class ChaseProblem:
 
 
 class SmartTagGhostAgent(Agent):
-    """
-    Improved Ghost agent using A* pathfinding.
-    This is MUCH smarter than the basic greedy approach!
-    
-    When chasing: Uses A* search to find the optimal path to Pacman
-    When fleeing: Uses A* search to find paths away from Pacman
-    """
     def __init__(self, index=1):
         self.index = index
         self.plannedPath = []  # Store planned path
         self.replanCounter = 0  # Counter to trigger replanning
         
     def getAction(self, state):
-        """
-        Get action using A* pathfinding for intelligent chasing/fleeing.
-        """
         legal = state.getLegalActions(self.index)
         if not legal:
             return Directions.STOP
@@ -256,7 +214,6 @@ class SmartTagGhostAgent(Agent):
                     # Path blocked, replan next turn
                     self.plannedPath = []
         else:
-            # FLEE FROM PACMAN - try to maximize distance
             # Use greedy approach but look ahead more
             bestAction = None
             bestDist = -1
@@ -290,7 +247,6 @@ class SmartTagGhostAgent(Agent):
         return random.choice(legal) if legal else Directions.STOP
     
     def getSuccessorPosition(self, position, action, walls):
-        """Get the successor position from taking an action."""
         dx, dy = Actions.directionToVector(action)
         nextx, nexty = int(position[0] + dx), int(position[1] + dy)
         if not walls[nextx][nexty]:

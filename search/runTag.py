@@ -1,8 +1,3 @@
-# runTag.py
-# ---------
-# Main script to run the Pacman Tag game
-# Usage: python runTag.py [options]
-
 from tagGame import TagGameRules, TagGameState
 from tagAgents import TagPacmanAgent, TagGhostAgent, KeyboardTagPacmanAgent, SmartTagGhostAgent
 from game import Game
@@ -14,9 +9,6 @@ def default(str):
     return str + ' [Default: %default]'
 
 def readCommand(argv):
-    """
-    Processes the command used to run the tag game.
-    """
     usageStr = """
     USAGE:      python runTag.py <options>
     EXAMPLES:   (1) python runTag.py
@@ -64,9 +56,7 @@ def readCommand(argv):
     return options
 
 def loadLayout(layoutName):
-    """
-    Load a layout from the layouts folder.
-    """
+ 
     import layout as layoutModule
     try:
         return layoutModule.getLayout(layoutName)
@@ -75,9 +65,7 @@ def loadLayout(layoutName):
         return layoutModule.getLayout('mediumMaze')
 
 def runTagGame(options):
-    """
-    Run a single tag game.
-    """
+  
     # Load the layout
     layoutObj = loadLayout(options.layout)
     
